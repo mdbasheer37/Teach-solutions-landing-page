@@ -1,0 +1,175 @@
+/*
+==========================================
+Express.js REST API - Complete Solution
+==========================================
+
+This file contains a complete REST API implementation with:
+- CRUD operations for items
+- In-memory data storage
+- Error handling
+- API documentation
+- Postman test examples
+
+To run:
+1. Install Node.js (v14+ recommended)
+2. Run: npm install express
+3. Start server: node thisfile.js
+4. API will be available at http://localhost:3000
+*/
+
+const express = require('express');
+const app = express();
+const PORT = 3000;
+
+// ======================
+// Middleware Setup
+// ======================
+app.use(express.json());
+
+// ======================
+// Data Storage
+// ======================
+let items = [
+  { id: 1, name: 'Item 1', description: 'First sample item' },
+  { id: 2, name: 'Item 2', description: 'Second sample item' }
+];
+
+// ======================
+// API Documentation
+// ======================
+const apiDocs = `
+API DOCUMENTATION
+-----------------
+
+BASE URL: http://localhost:${PORT}
+
+ENDPOINTS:
+1. GET    /             - Welcome message
+2. GET    /items        - Get all items
+3. GET    /items/:id    - Get single item
+4. POST   /items        - Create new item
+5. PUT    /items/:id    - Update item
+6. DELETE /items/:id    - Delete item
+
+SAMPLE REQUESTS:
+- GET /items/1
+  Returns: { "id": 1, "name": "Item 1", "description": "First sample item" }
+
+- POST /items
+  Body: { "name": "New", "description": "Item" }
+  Returns: { "id": 3, "name": "New", "description": "Item" }
+
+POSTMAN TEST COLLECTION:
+{
+  "info": {
+    "_postman_id": "express-api-collection",
+    "name": "Items API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get All Items",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "http://localhost:${PORT}/items"
+      }
+    },
+    {
+      "name": "Create Item",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\\"name\\":\\"New\\",\\"description\\":\\"Item\\"}"
+        },
+        "url": "http://localhost:${PORT}/items"
+      }
+    }
+  ]
+}
+`;
+
+// ======================
+// Route Handlers
+// ======================
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.send('Hello, World!');
+});
+
+// Get all items
+app.get('/items', (req, res) => {
+  res.json(items);
+});
+
+// Get single item
+app.get('/items/:id', (req, res) => {
+  const item = items.find(i => i.id === parseInt(req.params.id));
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  res.json(item);
+});
+
+// Create new item
+app.post('/items', (req, res) => {
+  if (!req.body.name || !req.body.description) {
+    return res.status(400).json({ error: 'Name and description are required' });
+  }
+  
+  const newItem = {
+    id: items.length + 1,
+    name: req.body.name,
+    description: req.body.description
+  };
+  
+  items.push(newItem);
+  res.status(201).json(newItem);
+});
+
+// Update item
+app.put('/items/:id', (req, res) => {
+  const item = items.find(i => i.id === parseInt(req.params.id));
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+
+  if (!req.body.name || !req.body.description) {
+    return res.status(400).json({ error: 'Name and description are required' });
+  }
+
+  item.name = req.body.name;
+  item.description = req.body.description;
+  res.json(item);
+});
+
+// Delete item
+app.delete('/items/:id', (req, res) => {
+  const itemIndex = items.findIndex(i => i.id === parseInt(req.params.id));
+  if (itemIndex === -1) return res.status(404).json({ error: 'Item not found' });
+
+  const deletedItem = items.splice(itemIndex, 1);
+  res.json(deletedItem[0]);
+});
+
+// ======================
+// Error Handling
+// ======================
+
+// 404 - Route not found
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// 500 - Server errors
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Something went wrong!' });
+});
+
+// ======================
+// Server Startup
+// ======================
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(apiDocs);
+});
