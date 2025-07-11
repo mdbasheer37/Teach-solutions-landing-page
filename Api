@@ -1,0 +1,273 @@
+/*
+===============================================
+Express.js + PostgreSQL CRUD API - Single File
+===============================================
+
+This file contains a complete REST API with:
+- PostgreSQL database connection
+- CRUD operations for users
+- Error handling
+- Input validation
+- API documentation
+- Postman test examples
+
+To run:
+1. Install dependencies: npm install express pg dotenv
+2. Create PostgreSQL database (see SQL below)
+3. Create .env file (copy from example below)
+4. Run: node thisfile.js
+*/
+
+require('dotenv').config();
+const express = require('express');
+const { Pool } = require('pg');
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// ===========================================
+// Database Configuration
+// ===========================================
+const pool = new Pool({
+  user: process.env.DB_USER || 'postgres',
+  host: process.env.DB_HOST || 'localhost',
+  database: process.env.DB_NAME || 'express_api',
+  password: process.env.DB_PASSWORD || 'yourpassword',
+  port: process.env.DB_PORT || 5432,
+});
+
+// Test connection on startup
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('❌ Database connection error:', err.stack);
+  } else {
+    console.log('✅ Connected to PostgreSQL database');
+    release();
+  }
+});
+
+// ===========================================
+// Database Setup SQL (Run this first)
+// ===========================================
+/*
+CREATE DATABASE express_api;
+
+CREATE TABLE users (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  age INTEGER
+);
+*/
+
+// ===========================================
+// Environment Variables (.env file example)
+// ===========================================
+/*
+DB_USER=postgres
+DB_HOST=localhost
+DB_NAME=express_api
+DB_PASSWORD=yourpassword
+DB_PORT=5432
+PORT=3000
+*/
+
+// ===========================================
+// Middleware
+// ===========================================
+app.use(express.json());
+
+// ===========================================
+// API Endpoints
+// ===========================================
+
+// GET all users
+app.get('/users', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT * FROM users');
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET single user
+app.get('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST create user
+app.post('/users', async (req, res) => {
+  const { name, email, age } = req.body;
+  
+  // Validation
+  if (!name || !email) {
+    return res.status(400).json({ error: 'Name and email are required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'INSERT INTO users (name, email, age) VALUES ($1, $2, $3) RETURNING *',
+      [name, email, age]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT update user
+app.put('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, email, age } = req.body;
+
+  // Validation
+  if (!name || !email) {
+    return res.status(400).json({ error: 'Name and email are required' });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      'UPDATE users SET name = $1, email = $2, age = $3 WHERE id = $4 RETURNING *',
+      [name, email, age, id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE user
+app.delete('/users/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rowCount } = await pool.query('DELETE FROM users WHERE id = $1', [id]);
+    if (rowCount === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ===========================================
+// Error Handling
+// ===========================================
+
+// 404 - Route not found
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// 500 - Server errors
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// ===========================================
+// API Documentation
+// ===========================================
+const apiDocs = `
+API DOCUMENTATION
+-----------------
+
+BASE URL: http://localhost:${PORT}
+
+ENDPOINTS:
+1. GET    /users        - Get all users
+2. GET    /users/:id    - Get single user
+3. POST   /users        - Create new user
+   Required fields: name, email
+4. PUT    /users/:id    - Update user
+5. DELETE /users/:id    - Delete user
+
+SAMPLE REQUESTS:
+- POST /users
+  Body: { "name": "John", "email": "john@example.com", "age": 30 }
+  Returns: { "id": 1, "name": "John", "email": "john@example.com", "age": 30 }
+
+POSTMAN TEST COLLECTION:
+{
+  "info": {
+    "_postman_id": "express-postgres-api",
+    "name": "Users API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create User",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\\"name\\":\\"John\\",\\"email\\":\\"john@example.com\\",\\"age\\":30}"
+        },
+        "url": "http://localhost:${PORT}/users"
+      }
+    },
+    {
+      "name": "Get All Users",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": "http://localhost:${PORT}/users"
+      }
+    }
+  ]
+}
+
+SETUP INSTRUCTIONS:
+1. Install PostgreSQL and create database:
+   CREATE DATABASE express_api;
+
+2. Create users table:
+   CREATE TABLE users (
+     id SERIAL PRIMARY KEY,
+     name VARCHAR(100) NOT NULL,
+     email VARCHAR(100) UNIQUE NOT NULL,
+     age INTEGER
+   );
+
+3. Install Node.js dependencies:
+   npm install express pg dotenv
+
+4. Create .env file with your database credentials
+
+5. Start server:
+   node thisfile.js
+`;
+
+// ===========================================
+// Server Startup
+// ===========================================
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(apiDocs);
+});
