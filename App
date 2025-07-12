@@ -1,0 +1,204 @@
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const cors = require('cors');
+const axios = require('axios');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// MongoDB Connection
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✅ MongoDB Connected'))
+  .catch(err => console.error('❌ MongoDB Error:', err));
+
+// User Model
+const User = mongoose.model('User', new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  watchlist: [{ type: Number }], // Stores TMDB movie IDs
+  favorites: [{ type: Number }],
+  reviews: [{
+    movieId: Number,
+    rating: { type: Number, min: 1, max: 5 },
+    comment: String
+  }]
+}));
+
+// TMDB API Client
+const tmdb = axios.create({
+  baseURL: 'https://api.themoviedb.org/3',
+  params: { api_key: process.env.TMDB_API_KEY }
+});
+
+// Auth Middleware
+const authenticate = (req, res, next) => {
+  const token = req.header('Authorization')?.replace('Bearer ', '');
+  if (!token) return res.status(401).send('Access denied');
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch (err) {
+    res.status(400).send('Invalid token');
+  }
+};
+
+// Routes
+app.post('/api/register', async (req, res) => {
+  try {
+    const { username, email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new User({ username, email, password: hashedPassword });
+    await user.save();
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.status(201).json({ token });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+    
+    const validPass = await bcrypt.compare(password, user.password);
+    if (!validPass) return res.status(400).json({ error: 'Invalid credentials' });
+
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+    res.json({ token });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/movies', async (req, res) => {
+  try {
+    const { query } = req.query;
+    const response = await tmdb.get('/search/movie', { params: { query } });
+    res.json(response.data.results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/watchlist', authenticate, async (req, res) => {
+  try {
+    const { movieId } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user.watchlist.includes(movieId)) {
+      user.watchlist.push(movieId);
+      await user.save();
+    }
+    res.json(user.watchlist);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Start server
+app.listen(PORT, () => console.log(`🚀 Backend running on http://localhost:${PORT}`));
+
+  import React, { useState, useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import axios from 'axios';
+import { AuthPage, MovieSearch, Watchlist, Navbar } from './components';
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [token, setToken] = useState(localStorage.getItem('token'));
+
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      // Fetch user data here if needed
+    }
+  }, [token]);
+
+  const login = async (email, password) => {
+    try {
+      const res = await axios.post('/api/login', { email, password });
+      localStorage.setItem('token', res.data.token);
+      setToken(res.data.token);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const register = async (username, email, password) => {
+    try {
+      const res = await axios.post('/api/register', { username, email, password });
+      localStorage.setItem('token', res.data.token);
+      setToken(res.data.token);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  return (
+    <Router>
+      <Navbar user={user} />
+      <Routes>
+        <Route path="/" element={<MovieSearch />} />
+        <Route path="/login" element={<AuthPage onLogin={login} />} />
+        <Route path="/register" element={<AuthPage onRegister={register} />} />
+        <Route path="/watchlist" element={<Watchlist />} />
+      </Routes>
+    </Router>
+  );
+}
+
+export default App;
+
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { MovieCard } from './MovieCard';
+
+export function MovieSearch() {
+  const [query, setQuery] = useState('');
+  const [movies, setMovies] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const searchMovies = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get('/api/movies', { params: { query } });
+      setMovies(res.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="movie-search">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search movies..."
+      />
+      <button onClick={searchMovies}>Search</button>
+      
+      {loading ? (
+        <div>Loading...</div>
+      ) : (
+        <div className="movie-grid">
+          {movies.map(movie => (
+            <MovieCard key={movie.id} movie={movie} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
